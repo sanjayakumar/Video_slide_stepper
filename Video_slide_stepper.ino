@@ -228,12 +228,9 @@ void motionControl() {
 
   //step loop
   do {
-    //digitalWrite(stp, HIGH); //fire motor driver step
-    //delay(pulseDelay);
-    //digitalWrite(stp, LOW); //reset driver
-    //btnVal = readLcdButtons(); //check there's no stoppage - this takes too long and significantly slows motor; use reset for stop!
-    //currentStep++;
-
+    
+    //Note: Stepper is driven via Timer interrupts and CurrentStep is incremented in the Timer Interrupt routine. This loop just checks for when to stop (user, task done, stop for photo etc.).
+    
     // Check for user stop -- notice doesn't check for key click just whether select is down
     if (readLcdButtons() == btnSel) break; // exits loop, stops stepper and exits
 
@@ -249,6 +246,7 @@ void motionControl() {
       delay((shutterDuration * 1000) - 80); //delay needs changing to timer so stop button can be polled
       MsTimer2::start();
     }
+    
     if (currentStep != prevStep) { // If current step changed since the last time we checked
       prevStep = currentStep;
       //print progress dot on LCD Screen
