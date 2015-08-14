@@ -17,6 +17,7 @@ SliderCam v0.2 - Rob Taylor (@robtaylorcase) June 2014 GPL 3.0
  */
 
 #include <LiquidCrystal.h>
+#include <MsTimer2.h>
 
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);    //set LCD output pins
 
@@ -176,7 +177,7 @@ int getIntFromDigits(int *digits, int num_digits) {
 double totalMotorSteps = 0;
 double pulseDelay = 0;
 int intervalDistance = 0;           //number of motor steps contained within a camera step
-int currentStep = 0;        //number of motor steps thus far
+volatile int currentStep = 0;        //number of motor steps thus far
 int motion = 0;             // motion = 1 if stop hasn't been pressed
 int shutterDuration = 2;   //length of time for the camera to stop at shot steps in seconds
 
@@ -189,6 +190,14 @@ void debugPrint(char *str, int val) {
   lcd.print(val);
   delay(1000);
 }
+
+
+void stepperDriveUsingTimer() {
+  digitalWrite(stp, LOW);
+  digitalWrite(stp, HIGH);
+  currentStep++;
+}
+
 
 void motionControl() {
 
@@ -212,34 +221,44 @@ void motionControl() {
   //Serial.println(pulseDelay);
   lcd.setCursor(0, 1);
 
+  MsTimer2::set(pulseDelay, stepperDriveUsingTimer);
+  MsTimer2::start();
+  
+  int prevStep = 0;
+
   //step loop
   do {
-    digitalWrite(stp, HIGH); //fire motor driver step
-    delay(pulseDelay);
-    digitalWrite(stp, LOW); //reset driver
+    //digitalWrite(stp, HIGH); //fire motor driver step
+    //delay(pulseDelay);
+    //digitalWrite(stp, LOW); //reset driver
     //btnVal = readLcdButtons(); //check there's no stoppage - this takes too long and significantly slows motor; use reset for stop!
-    currentStep++;
-    
+    //currentStep++;
+
     // Check for user stop -- notice doesn't check for key click just whether select is down
-    if (readLcdButtons() == btnSel) return;
-    
+    if (readLcdButtons() == btnSel) break; // exits loop, stops stepper and exits
+
     //Note: Check for Limit Switches can be added here
 
     //at end of each step
     if (currentStepsInt > 0 && currentStep % intervalDistance == 0) {    //if current number of motor steps is divisible by the number of motor steps in a camera step, fire the camera
+      MsTimer2::stop();
+      delay(20);
       digitalWrite(trig, HIGH); //trigger camera shutter
       delay(80);
       digitalWrite(trig, LOW);    //reset trigger pin
       delay((shutterDuration * 1000) - 80); //delay needs changing to timer so stop button can be polled
+      MsTimer2::start();
     }
-
-    //print progress dot on LCD Screen
-    if (currentStep % dotDistance == 0) {
-      lcd.print(".");
+    if (currentStep != prevStep) { // If current step changed since the last time we checked
+      prevStep = currentStep;
+      //print progress dot on LCD Screen
+      if (currentStep % dotDistance == 0) {
+        lcd.print(".");
+      }
     }
   }
   while (currentStep < totalMotorSteps);
-
+  MsTimer2::stop();
 } //end motion control
 
 void processTopLevelMenu() {
