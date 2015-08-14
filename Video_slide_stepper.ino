@@ -324,7 +324,7 @@ void getUserInputValue(int numDigits) {
         else currentCursorPos--;
         break;
       case btnR:
-        if (currentCursorPos == numDigits) break;      //can't go right from here
+        if (currentCursorPos == numDigits - 1) break;      //can't go right from here
         else currentCursorPos++;
         break;
       case btnSel:
