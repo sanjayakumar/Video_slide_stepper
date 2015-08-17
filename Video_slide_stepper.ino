@@ -31,6 +31,11 @@ const int trig = 13;
 
 const int MAX_TRAVEL_DISTANCE = 1300; // in mm. needs to be customized for each rig
 
+//define Microstep pins
+const int MS1 = 5;
+const int MS2 = 6;
+const int MS3 = 7;
+
 //BUTTONS
 //define button values
 const int btnUp = 0;
@@ -148,9 +153,9 @@ int LCDLine2Value[6] = {0, 0, 0, 0, 0, 0};
 
 //MENU FUNCTIONALITY
 int currentChar = 0;        //global declarations of array-parsing variables
-double currentDistanceInt = 0100;
-double currentDurationInt = 000010;
-double currentStepsInt = 0000; // Zero steps means video mode
+long currentDistanceInt = 0100;
+long currentDurationInt = 000010;
+long currentStepsInt = 0000; // Zero steps means video mode
 int travelDir = 0;
 
 int adjustDigit(int x, int dir) {     //digit adjust function
@@ -184,29 +189,76 @@ int shutterDuration = 2;   //length of time for the camera to stop at shot steps
 int dotSteps = 16; // number of dots on LCD
 int dotDistance;
 
-void debugPrint(char *str, int val) {
+void debugPrint(char *str, long val) {
+  lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print(str);
   lcd.print(val);
   delay(1000);
 }
 
+const int DESIRED_PULSE_DELAY = 1; // we can (to some extent) adjust microsteps to get Pulse Delay to a desirable value
+
+// For the Pololu A4988 Stepper Motor Driver
+
+const int micro_stepping_value[5] = {0b000, 0b100, 0b010, 0b110, 0b111};
+long pulse_delay_values[5];
+long motor_step_values[5];
+
+
+//NOTE: returns the INDEX of the best pulse_delay_value
+int calcPulseDelay() {
+  int index;
+  long num_steps_per_tick = 1;
+  long debug_val;
+  for (index = 0; index < 5; index++) {
+    motor_step_values[index] = currentDistanceInt * 5 * num_steps_per_tick;
+    pulse_delay_values[index] = (1000L * currentDurationInt) / motor_step_values[index];
+    num_steps_per_tick *= 2;
+  }
+
+  // find the one that is just greater than or equal to desired value of pulse delay;
+  for (index = 4; index >= 0 ; index--) {
+    if (pulse_delay_values[index] >= DESIRED_PULSE_DELAY) return index;
+  }
+  return 4;
+}
+
+void setMicroStep(int i) {
+  digitalWrite(MS1, micro_stepping_value[i] & 0b1);
+  digitalWrite(MS2, micro_stepping_value[i] & 0b10);
+  digitalWrite(MS3, micro_stepping_value[i] & 0b100);
+}
+
 
 void stepperDriveUsingTimer() {
-  digitalWrite(stp, LOW);
   digitalWrite(stp, HIGH);
+  digitalWrite(stp, LOW);
   currentStep++;
 }
 
 
 void motionControl() {
 
+  int index;
+
   // If the number of steps is zero implies video mode (i.e. does not pause for shooting)
   currentStep = 0;
 
-  totalMotorSteps = currentDistanceInt * 5; //calculate total steps (0.2mm = 20-tooth gear on 2mm pitch belt; 40mm per rev, 200 steps per rev, ergo 1/5th mm per step)
-  pulseDelay = (1000L * currentDurationInt) / totalMotorSteps; //how long to pause in ms between STP pulses to the motor driver -- does not include shutter stop time
+  //totalMotorSteps = currentDistanceInt * 5; //calculate total steps (0.2mm = 20-tooth gear on 2mm pitch belt; 40mm per rev, 200 steps per rev, ergo 1/5th mm per step)
+  //pulseDelay = (1000L * currentDurationInt) / totalMotorSteps; //how long to pause in ms between STP pulses to the motor driver -- does not include shutter stop time
 
+  index = calcPulseDelay();
+  pulseDelay = pulse_delay_values[index];
+  totalMotorSteps = motor_step_values[index];
+  setMicroStep(index);
+  
+  // debugPrint("in ", index); 
+  // debugPrint("pd ", pulseDelay);
+  // debugPrint("tm ", totalMotorSteps);
+  
+  if (pulseDelay < 1) pulseDelay = 1; // Can't set timer to zero ms
+   
   if (currentStepsInt > 0)  {
     intervalDistance = totalMotorSteps / currentStepsInt;
   }
@@ -223,14 +275,14 @@ void motionControl() {
 
   MsTimer2::set(pulseDelay, stepperDriveUsingTimer);
   MsTimer2::start();
-  
+
   int prevStep = 0;
 
   //step loop
   do {
-    
+
     //Note: Stepper is driven via Timer interrupts and CurrentStep is incremented in the Timer Interrupt routine. This loop just checks for when to stop (user, task done, stop for photo etc.).
-    
+
     // Check for user stop -- notice doesn't check for key click just whether select is down
     if (readLcdButtons() == btnSel) break; // exits loop, stops stepper and exits
 
@@ -246,7 +298,7 @@ void motionControl() {
       delay((shutterDuration * 1000) - 80); //delay needs changing to timer so stop button can be polled
       MsTimer2::start();
     }
-    
+
     if (currentStep != prevStep) { // If current step changed since the last time we checked
       prevStep = currentStep;
       //print progress dot on LCD Screen
@@ -448,6 +500,11 @@ void setup() {
   lcd.setCursor(0, 0);            // set cursor position
 
   pinMode(A0, INPUT);
+
+  // Microstep Pins
+  pinMode(MS1, OUTPUT);
+  pinMode(MS2, OUTPUT);
+  pinMode(MS3, OUTPUT);
 
   pinMode(stp, OUTPUT);           //initialise stepper pins
   pinMode(dir, OUTPUT);
